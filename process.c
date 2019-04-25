@@ -31,9 +31,7 @@ void dequeue() {
 	if (process_queue == NULL) {
 	}
 	else {
-		process_t *temp = process_queue;
 		process_queue = process_queue -> next;
-		temp -> next = NULL;
 	}
 }
 
@@ -49,13 +47,18 @@ process_t* priority_dequeue() {
 	}
 	else {
 		process_t *temp = schedule_queue;
-		while(temp->next != NULL) { //&& get_time(temp->next->start) < current_time.sec*1000 + current_time.msec) {
+		while(temp->next != NULL && get_time(temp->next->start) > current_time.sec*1000 + current_time.msec) {
 			temp = temp->next;
 			//time = temp->next->start->sec*1000 + temp->next->start->msec;
 		}
-		process_t *to_remove = temp->next;
-		temp->next = temp->next->next;
-		return to_remove;
+		if (temp -> next == NULL) {
+			return NULL;
+		}
+		else {
+			process_t *to_remove = temp->next;
+			temp->next = temp->next->next;
+			return to_remove;
+		}
 	}
 }
 
@@ -168,24 +171,24 @@ void process_start (void) {
 	PIT->MCR = 0;
 	PIT->CHANNEL[0].TFLG = 1;
 	PIT->CHANNEL[0].LDVAL = 0x111111;
-	PIT->CHANNEL[0].TCTRL = 2;
-	
+	PIT->CHANNEL[0].TCTRL |= 2;
 	NVIC_EnableIRQ(PIT0_IRQn); /* enable PIT0 Interrupts */
+	NVIC_SetPriority(PIT0_IRQn, 2);
 	
 	//timer 1 setup
-	//SIM->SCGC6 = SIM_SCGC6_PIT_MASK; // Enable clock to PIT module
-	//PIT->MCR = 0;
 	PIT->CHANNEL[1].TFLG = 1;
 	PIT->CHANNEL[1].LDVAL = DEFAULT_SYSTEM_CLOCK/1000;
-	PIT->CHANNEL[1].TCTRL = 2;
-	
+	PIT->CHANNEL[1].TCTRL |= 3;
 	NVIC_EnableIRQ(PIT1_IRQn); /* enable PIT1 Interrupts */
+	NVIC_SetPriority(PIT1_IRQn, 0);
+	
+	NVIC_SetPriority(SVCall_IRQn, 1);
 	
 	process_begin();
 }
 
 unsigned int * process_select(unsigned int * cursp) {
-		
+	
 	//no current process
 	if(current_process == NULL) {
 		current_process = master_dequeue();
@@ -205,17 +208,16 @@ unsigned int * process_select(unsigned int * cursp) {
 	else if(cursp == NULL) {
 		process_stack_free(current_process -> og_sp, current_process -> stack_size);
 		free(current_process);
-		current_process = master_dequeue();
 		//update met/missed deadline
 		if (current_process -> deadline != NULL) {
-			if (get_time(current_process->deadline) > current_time.sec*1000 + current_time.msec) {
+			if (get_time(current_process->deadline) < current_time.sec*1000 + current_time.msec) {
 				process_deadline_miss = process_deadline_miss + 1;
 			}
 			else {
 				process_deadline_met = process_deadline_met + 1;
 			}
 		}
-		
+		current_process = master_dequeue();
 		if(current_process == NULL) {
 			if (schedule_queue != NULL) {
 				while (current_process == NULL) {
@@ -250,7 +252,7 @@ void PIT1_IRQHandler(void) {
 		current_time.sec = current_time.sec + 1;
 	}
 	
-	PIT->CHANNEL[0].TFLG = 1;  // reset timer
+	PIT->CHANNEL[1].TFLG = 1;  // reset timer
 	
 	NVIC_EnableIRQ(PIT0_IRQn);
 }
