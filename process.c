@@ -26,22 +26,6 @@ int process_deadline_miss = 0;
 //reinitialize stack for a periodic process
 unsigned int * process_stack_reinit (void (*f)(void), int n, unsigned int *ogsp)
 {
-//	int i;
-//	unsigned int *sp = ogsp;
-//	
-//  /* Initialize the stack to all zeros */ 
-//  /* Note: Could just use calloc instead */ 
-//  for (i=0; i < n; i++) {
-//  	sp[i] = 0;
-//  }
-//  
-//	sp[n-1] = 0x01000000; // xPSR
-//  sp[n-2] = (unsigned int) f; // PC
-//	sp[n-3] = (unsigned int) process_terminated; // LR
-//	sp[n-9] = 0xFFFFFFF9; // EXC_RETURN value, returns to thread mode
-//	sp[n-18] = 0x3; // Enable scheduling timer and interrupt
-//  
-//  return &(sp[n-18]);
     process_stack_free(current_process -> og_sp, current_process -> stack_size);
 	  return process_stack_init(f, n);
 	
@@ -52,14 +36,6 @@ unsigned int get_time(realtime_t *time) {
 	unsigned int millisecs = time -> msec;
 	return secs*1000 + millisecs;
 }
-
-//realtime_t* add_times(realtime_t *t1, realtime_t *t2) {
-//	realtime_t newT = {
-//	newT.sec = (get_time(t1) + get_time(t2))/1000,
-//	newT.msec = (get_time(t1) + get_time(t2))%1000
-//	};
-//	return &newT;
-//}
 
 /* removes the first element of process_queue*/
 void dequeue() {
@@ -172,6 +148,9 @@ int process_create (void (*f)(void), int n) {
 	new_p -> stack_size = n;
 	new_p -> deadline = NULL;
 	new_p -> start = NULL;
+	new_p -> period = NULL;
+	new_p -> relative_deadline = NULL;
+	new_p -> pc = NULL;
 	
 	enqueue(new_p);
 	
@@ -195,6 +174,9 @@ int process_rt_create(void (*f)(void), int n, realtime_t *start, realtime_t *dea
 	new_p -> stack_size = n;
 	new_p -> deadline = deadline;
 	new_p -> start = start;
+	new_p -> period = NULL;
+	new_p -> relative_deadline = NULL;
+	new_p -> pc = NULL;
 	priority_enqueue(new_p);
 	
 	return 0;
@@ -216,12 +198,27 @@ int process_rt_periodic(void (*f)(void), int n, realtime_t *start, realtime_t *d
 	new_p -> og_sp = new_p -> sp;
 	new_p -> stack_size = n;
 	realtime_t newT = {0, 1};
-	new_p -> deadline = &newT;
+	
+	//make new objects so pointers don't get messed up
+	new_p -> deadline = malloc(sizeof(realtime_t));
+	new_p -> start = malloc(sizeof(realtime_t));
+	new_p -> period = malloc(sizeof(realtime_t));
+	new_p -> relative_deadline = malloc(sizeof(realtime_t));
+	
+	//check we have enough space
+	if (new_p -> deadline == NULL || new_p -> start == NULL || new_p -> period == NULL || new_p -> relative_deadline == NULL) {
+		return -1;
+	}
+	
+	//make assignments and enqueue
 	new_p -> deadline -> sec = (get_time(start) + get_time(deadline))/1000;
 	new_p -> deadline -> msec = (get_time(start) + get_time(deadline))%1000;
-	new_p -> start = start;
-	new_p -> period = period;
-	new_p -> relative_deadline = deadline;
+	new_p -> start -> sec = (get_time(start))/1000;
+	new_p -> start -> msec = (get_time(start))%1000;
+	new_p -> period -> sec = (get_time(period))/1000;;
+	new_p -> period -> msec = (get_time(period))%1000;
+	new_p -> relative_deadline -> sec = (get_time(deadline))/1000;;
+	new_p -> relative_deadline -> msec = (get_time(deadline))%1000;
 	new_p -> pc = f;
 	priority_enqueue(new_p);
 	
@@ -282,11 +279,8 @@ unsigned int * process_select(unsigned int * cursp) {
 		
 		//if periodic, reset the process
 		if (current_process->period != NULL) {
-			//current_process->start = add_times(current_process->start, current_process->period);
 			current_process -> start -> sec = (get_time(current_process->start) + get_time(current_process->period))/1000;
 			current_process -> start -> msec = (get_time(current_process->start) + get_time(current_process->period))%1000;
-			start_time = get_time(current_process->start);
-			//current_process->deadline = add_times(current_process->start, current_process->relative_deadline);
 			current_process -> deadline -> sec = (get_time(current_process->start) + get_time(current_process->relative_deadline))/1000;
 			current_process -> deadline -> msec = (get_time(current_process->start) + get_time(current_process->relative_deadline))%1000;
 			current_process->sp = current_process->og_sp;
