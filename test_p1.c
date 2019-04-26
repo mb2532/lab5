@@ -2,16 +2,11 @@
 
 Test 1:
 
-Tests having multiple (2) processes with deadlines scheduled together, and also checks that we propperly
-record missed deadlines. In addition, it checks that if the only program queued is not ready to start yet
-then we correctly wait until it is ready and then execute it.
+Tests having one periodic process
 
 Expected behavior:
 
-Begin running pNRT1 (blinking red LED). Quickly preempt with pRT1 (blinking blue 3 times). Then finish
-pNRT1 (blinking red) becuase pRT2 is not ready yet. Finish pNRT1, and then wait for a bit until pRT2 is ready and
-execute pRT2 (blinking yellow) until it completes. Then we should observe one blink of the green LED to
-indicate that pRT1 missed its deadline.
+Blinks blue LED 3 times every 5 seconds.
 
  ************************************************************************/
  
@@ -54,26 +49,8 @@ realtime_t t_pRT1 = {1, 0};
 void shortDelay(){delay();}
 void mediumDelay() {delay(); delay();}
 
-
-
-/*----------------------------------------------------
- * Non real-time processes
- *----------------------------------------------------*/
- 
-//blinks red LED 4 times
-void pNRT1(void) {
-	int i;
-	for (i=0; i<4;i++){
-	LEDRed_Toggle();
-	shortDelay();
-	LEDRed_Toggle();
-	shortDelay();
-	}
-	
-}
-
 /*-------------------
- * Real-time processes
+ * Periodic process
  *-------------------*/
 
 //blinks blue LED 3 times
@@ -83,18 +60,6 @@ void pRT1(void) {
 	LEDBlue_On();
 	shortDelay();
 	LEDBlue_Toggle();
-	shortDelay();
-	}
-}
-//blinks yellow 3 times
-void pRT2(void) {
-	int i;
-	for (i=0; i<3;i++){
-	LEDGreen_Toggle();
-	LEDRed_Toggle();
-	shortDelay();
-	LEDGreen_Toggle();
-	LEDRed_Toggle();
 	shortDelay();
 	}
 }
@@ -108,9 +73,7 @@ int main(void) {
 	 LED_Initialize();
 
     /* Create processes */ 
-    //if (process_create(pNRT1, NRT_STACK) < 0) { return -1; }
-    if (process_rt_periodic(pRT2, RT_STACK, &t_0sec, &t_2sec, &t_5sec) < 0) { return -1; } 
-		//if (process_rt_periodic(pRT1, RT_STACK, &t_0sec, &t_5sec, &t_10sec) < 0) { return -1; } 
+    if (process_rt_periodic(pRT1, RT_STACK, &t_0sec, &t_2sec, &t_5sec) < 0) { return -1; } 
    
     /* Launch concurrent execution */
 	 process_start();

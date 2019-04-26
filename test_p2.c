@@ -2,16 +2,14 @@
 
 Test 1:
 
-Tests having multiple (2) processes with deadlines scheduled together, and also checks that we propperly
-record missed deadlines. In addition, it checks that if the only program queued is not ready to start yet
-then we correctly wait until it is ready and then execute it.
+Tests having multiple (2) periodic processes running together with one process that doesn't have a deadline
 
 Expected behavior:
 
-Begin running pNRT1 (blinking red LED). Quickly preempt with pRT1 (blinking blue 3 times). Then finish
-pNRT1 (blinking red) becuase pRT2 is not ready yet. Finish pNRT1, and then wait for a bit until pRT2 is ready and
-execute pRT2 (blinking yellow) until it completes. Then we should observe one blink of the green LED to
-indicate that pRT1 missed its deadline.
+Red LED should blink twice as pNRT1 runs until pRT1 is ready. Then pRT1 should preempt the red LED and we should see 3 blinks of
+blue LED. Then, pRT2 should run and we should see 12 blinks of the yellow. Then, while both pRT1 and
+pRT2 are not ready again yet we should see 2 more blinks of red LED so that pNRT1 can finish. Then, once we
+hit 16 seconds nRT1 runs and then subsequently pNRT2 runs, and repeats this every 16 seconds.
 
  ************************************************************************/
  
@@ -75,19 +73,6 @@ void pNRT1(void) {
 	
 }
 
-//blinks blue LED 4 times
-void pNRT2(void) {
-	int i;
-	for (i=0; i<4;i++){
-	LEDBlue_Toggle();
-	shortDelay();
-	LEDBlue_Toggle();
-	shortDelay();
-	}
-	
-}
-
-
 
 /*-------------------
  * Real-time processes
@@ -95,6 +80,7 @@ void pNRT2(void) {
 
 //blinks blue LED 3 times
 void pRT1(void) {
+	LED_Off();
 	int i;
 	for (i=0; i<3;i++){
 	LEDBlue_On();
@@ -103,8 +89,9 @@ void pRT1(void) {
 	shortDelay();
 	}
 }
-//blinks yellow 3 times
+//blinks yellow 12 times
 void pRT2(void) {
+	LED_Off();
 	int i;
 	for (i=0; i<12;i++){
 	LEDGreen_Toggle();
@@ -126,9 +113,8 @@ int main(void) {
 
     /* Create processes */ 
     if (process_create(pNRT1, NRT_STACK) < 0) { return -1; }
-		//if (process_create(pNRT2, NRT_STACK) < 0) { return -1; }
-		if (process_rt_periodic(pRT1, RT_STACK, &t_0sec, &t_5sec, &t_16sec) < 0) { return -1; }
-    if (process_rt_periodic(pRT2, RT_STACK, &t_0sec, &t_20sec, &t_16sec) < 0) { return -1; }  
+		if (process_rt_periodic(pRT1, RT_STACK, &t_1sec, &t_5sec, &t_16sec) < 0) { return -1; }
+    if (process_rt_periodic(pRT2, RT_STACK, &t_1sec, &t_20sec, &t_16sec) < 0) { return -1; }  
    
     /* Launch concurrent execution */
 	 process_start();
