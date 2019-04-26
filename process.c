@@ -10,8 +10,11 @@ struct process_state {
 	process_t *next;
 	realtime_t *start;
 	realtime_t *deadline;
+	realtime_t *period;
+	realtime_t *relative_deadline;
+	void (*pc)(void);
 };
-
+unsigned int start_time;
 process_t *schedule_queue = NULL;
 process_t *process_queue = NULL;
 process_t *current_process = NULL;
@@ -20,11 +23,43 @@ realtime_t current_time;
 int process_deadline_met = 0;
 int process_deadline_miss = 0;
 
+//reinitialize stack for a periodic process
+unsigned int * process_stack_reinit (void (*f)(void), int n, unsigned int *ogsp)
+{
+//	int i;
+//	unsigned int *sp = ogsp;
+//	
+//  /* Initialize the stack to all zeros */ 
+//  /* Note: Could just use calloc instead */ 
+//  for (i=0; i < n; i++) {
+//  	sp[i] = 0;
+//  }
+//  
+//	sp[n-1] = 0x01000000; // xPSR
+//  sp[n-2] = (unsigned int) f; // PC
+//	sp[n-3] = (unsigned int) process_terminated; // LR
+//	sp[n-9] = 0xFFFFFFF9; // EXC_RETURN value, returns to thread mode
+//	sp[n-18] = 0x3; // Enable scheduling timer and interrupt
+//  
+//  return &(sp[n-18]);
+    process_stack_free(current_process -> og_sp, current_process -> stack_size);
+	  return process_stack_init(f, n);
+	
+}
+
 unsigned int get_time(realtime_t *time) {
 	unsigned int secs = time -> sec;
 	unsigned int millisecs = time -> msec;
 	return secs*1000 + millisecs;
 }
+
+//realtime_t* add_times(realtime_t *t1, realtime_t *t2) {
+//	realtime_t newT = {
+//	newT.sec = (get_time(t1) + get_time(t2))/1000,
+//	newT.msec = (get_time(t1) + get_time(t2))%1000
+//	};
+//	return &newT;
+//}
 
 /* removes the first element of process_queue*/
 void dequeue() {
@@ -40,7 +75,7 @@ process_t* priority_dequeue() {
 	if (schedule_queue == NULL) {
 		return NULL;
 	}
-	else if (get_time(schedule_queue->start) < current_time.sec*1000 + current_time.msec) {
+	else if (get_time(schedule_queue->start) <= current_time.sec*1000 + current_time.msec) {
 		process_t *to_remove = schedule_queue;
 		schedule_queue = schedule_queue->next;
 		return to_remove;
@@ -165,6 +200,35 @@ int process_rt_create(void (*f)(void), int n, realtime_t *start, realtime_t *dea
 	return 0;
 }
 
+int process_rt_periodic(void (*f)(void), int n, realtime_t *start, realtime_t *deadline, realtime_t *period) {
+	//allocate space for a new process state and create it
+	process_t *new_p = malloc(sizeof(process_t));
+	if (new_p == NULL) { //if couldn't allocate enough space for stack
+		return -1;
+	}
+		
+	new_p -> sp = process_stack_init(*f, n);
+	if (new_p -> sp == NULL) {
+		return -1;
+	}
+	
+	new_p -> next = NULL;
+	new_p -> og_sp = new_p -> sp;
+	new_p -> stack_size = n;
+	realtime_t newT = {0, 1};
+	new_p -> deadline = &newT;
+	new_p -> deadline -> sec = (get_time(start) + get_time(deadline))/1000;
+	new_p -> deadline -> msec = (get_time(start) + get_time(deadline))%1000;
+	new_p -> start = start;
+	new_p -> period = period;
+	new_p -> relative_deadline = deadline;
+	new_p -> pc = f;
+	priority_enqueue(new_p);
+	
+	
+	return 0;
+}
+
 void process_start (void) {
 	//timer 0 setup
 	SIM->SCGC6 = SIM_SCGC6_PIT_MASK; // Enable clock to PIT module
@@ -206,8 +270,6 @@ unsigned int * process_select(unsigned int * cursp) {
 	}
 	//current process has terminated
 	else if(cursp == NULL) {
-		process_stack_free(current_process -> og_sp, current_process -> stack_size);
-		free(current_process);
 		//update met/missed deadline
 		if (current_process -> deadline != NULL) {
 			if (get_time(current_process->deadline) < current_time.sec*1000 + current_time.msec) {
@@ -217,6 +279,26 @@ unsigned int * process_select(unsigned int * cursp) {
 				process_deadline_met = process_deadline_met + 1;
 			}
 		}
+		
+		//if periodic, reset the process
+		if (current_process->period != NULL) {
+			//current_process->start = add_times(current_process->start, current_process->period);
+			current_process -> start -> sec = (get_time(current_process->start) + get_time(current_process->period))/1000;
+			current_process -> start -> msec = (get_time(current_process->start) + get_time(current_process->period))%1000;
+			start_time = get_time(current_process->start);
+			//current_process->deadline = add_times(current_process->start, current_process->relative_deadline);
+			current_process -> deadline -> sec = (get_time(current_process->start) + get_time(current_process->relative_deadline))/1000;
+			current_process -> deadline -> msec = (get_time(current_process->start) + get_time(current_process->relative_deadline))%1000;
+			current_process->sp = current_process->og_sp;
+			current_process-> sp= process_stack_reinit(*(current_process -> pc), current_process->stack_size, current_process->og_sp);
+			current_process-> og_sp= current_process->sp;
+			priority_enqueue(current_process);
+		}
+		else {
+			process_stack_free(current_process -> og_sp, current_process -> stack_size);
+			free(current_process);
+		}
+		
 		current_process = master_dequeue();
 		if(current_process == NULL) {
 			if (schedule_queue != NULL) {
